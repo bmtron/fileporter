@@ -1,0 +1,8 @@
+[package]
+name = "fileporter-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fileporter-shared = { path = "../fileporter-shared" }
+crossbeam = "0.8"
