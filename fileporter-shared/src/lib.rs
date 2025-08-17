@@ -7,6 +7,7 @@ pub struct HeaderData {
     pub version: u8,
     pub flags: u8,
     pub name_len: u16,
+    pub path_len: u16,
     pub file_size: u64,
 }
 
