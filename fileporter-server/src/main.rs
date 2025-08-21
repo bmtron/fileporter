@@ -3,7 +3,7 @@ use fileporter_shared::{BUF_SIZE, HeaderData, HeaderError, MAGIC};
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{BufReader, BufWriter, SeekFrom};
+use std::io::{BufReader, BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::result::Result;
 use std::thread;
@@ -15,11 +15,14 @@ fn handle_client(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let header_read_len = reader.read_exact(&mut header_buffer);
 
     let header_is_ok: bool = match header_read_len {
-        Ok(h) => {
+        Ok(()) => {
             println!("Header appears ok...");
             true
         }
-        Err(e) => false,
+        Err(e) => {
+            eprintln!("Error on header_read_len: {}", e);
+            false
+        },
     };
 
     if !header_is_ok {
@@ -28,7 +31,7 @@ fn handle_client(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     }
 
     println!("Parsing header...");
-    let parsed_header = parse_header(&header_buffer).unwrap();
+    let parsed_header = parse_header(&header_buffer)?;
     println!("Metadata: ");
     println!("File size: {:?}", parsed_header.file_size);
     println!("Header data: {:?}", parsed_header);
@@ -41,13 +44,14 @@ fn handle_client(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut file_name_buf = vec![0; parsed_header.name_len.try_into().unwrap()];
     let mut file_path_buf = vec![0; parsed_header.path_len.try_into().unwrap()];
 
-    let _ = reader.read_exact(&mut file_name_buf);
+    reader.read_exact(&mut file_name_buf)?;
+    // the unwrap here should be fine
     let mut file_name: String = file_name_buf.try_into().unwrap();
     println!("file name is {file_name}");
 
     println!("path length is {0}", parsed_header.path_len);
     if parsed_header.path_len > 0 {
-        let _ = reader.read_exact(&mut file_path_buf);
+        reader.read_exact(&mut file_path_buf)?;
         let file_path: String = file_path_buf.try_into().unwrap();
 
         file_name = file_path + "/" + &file_name;
@@ -62,7 +66,7 @@ fn handle_client(stream: TcpStream) -> Result<(), Box<dyn Error>> {
     let mut buf_writer = BufWriter::new(target_file);
 
     let (tx, rx) = bounded::<Vec<u8>>(64);
-    let mut processing_percent: f64 = (BUF_SIZE as f64 / parsed_header.file_size as f64) * 100.0;
+    let mut processing_percent: f64;
 
     let mut processing_total = 0.0;
     thread::spawn(move || {
@@ -98,7 +102,7 @@ fn process_chunk(
     processing_total: &mut f64,
     processing_percent: f64,
 ) -> Result<(), Box<dyn Error>> {
-    let _ = file_buf_writer.write_all(&data)?;
+    file_buf_writer.write_all(&data)?;
 
     *processing_total = *processing_total + processing_percent;
     println!("{processing_total}%");
@@ -133,7 +137,7 @@ fn parse_header(header: &[u8; 18]) -> Result<HeaderData, HeaderError> {
     })
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting...");
     let listener = TcpListener::bind("0.0.0.0:8182")?;
 
@@ -141,12 +145,19 @@ fn main() -> std::io::Result<()> {
         match stream {
             Ok(stream) => {
                 let start = Instant::now();
-                let _ = handle_client(stream);
+                match handle_client(stream) {
+                    Ok(()) => {
+                        println!("handled")
+                    },
+                    Err(e) => {
+                        eprintln!("Error processing client stream: {}", e);
+                    }
+                }
                 let duration = start.elapsed();
                 println!("Processing took {} seconds", duration.as_secs());
             }
             Err(e) => {
-                println!("Connection failed, skipping attempted stream.\nError: {e}")
+                eprintln!("Connection failed, skipping attempted stream.\nError: {e}")
             }
         }
     }
